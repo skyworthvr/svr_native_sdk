@@ -1,16 +1,13 @@
-//
-// Created by SVR00003 on 2017/9/14.
-//
 
-#ifndef XRSDK_XRAPI_H
-#define XRSDK_XRAPI_H
+#ifndef XR_XrApih
+#define XR_XrApih
 
 #include "XrApiConfig.h"
-//#include "XrApiVersion.h"
+#include "XrApiVersion.h"
 #include "XrApiTypes.h"
 
-
-/*
+// clang-format off
+/** \mainpage
 
 VrApi
 =====
@@ -64,6 +61,8 @@ surfaceDestroyed() or onPause(), whichever comes first.
 Android VR life cycle
 =====================
 
+\code
+
 // Setup the Java references.
 xrJava java;
 java.Vm = javaVm;
@@ -72,7 +71,7 @@ java.ActivityObject = activityObject;
 
 // Initialize the API.
 const xrInitParms initParms = xrapiDefaultInitParms( &java );
-if ( xrapiInitialize( &initParms ) != VRAPI_INITIALIZE_SUCCESS )
+if ( xrapiInitialize( &initParms ) != XRAPI_INITIALIZE_SUCCESS )
 {
 	FAIL( "Failed to initialize VrApi!" );
 	abort();
@@ -82,17 +81,17 @@ if ( xrapiInitialize( &initParms ) != VRAPI_INITIALIZE_SUCCESS )
 EGLContext eglContext = ;	// application's context
 
 // Get the suggested resolution to create eye texture swap chains.
-const int suggestedEyeTextureWidth = xrapiGetSystemPropertyInt( &java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_WIDTH );
-const int suggestedEyeTextureHeight = xrapiGetSystemPropertyInt( &java, VRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_HEIGHT );
+const int suggestedEyeTextureWidth = xrapiGetSystemPropertyInt( &java, XRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_WIDTH );
+const int suggestedEyeTextureHeight = xrapiGetSystemPropertyInt( &java, XRAPI_SYS_PROP_SUGGESTED_EYE_TEXTURE_HEIGHT );
 
 // Allocate a texture swap chain for each eye with the application's EGLContext current.
-xrTextureSwapChain * colorTextureSwapChain[VRAPI_FRAME_LAYER_EYE_MAX];
-for ( int eye = 0; eye < VRAPI_FRAME_LAYER_EYE_MAX; eye++ )
+xrTextureSwapChain * colorTextureSwapChain[XRAPI_FRAME_LAYER_EYE_MAX];
+for ( int eye = 0; eye < XRAPI_FRAME_LAYER_EYE_MAX; eye++ )
 {
-	colorTextureSwapChain[eye] = xrapiCreateTextureSwapChain( VRAPI_TEXTURE_TYPE_2D, VRAPI_TEXTURE_FORMAT_8888,
+	colorTextureSwapChain[eye] = xrapiCreateTextureSwapChain3( XRAPI_TEXTURE_TYPE_2D, GL_RGBA8,
 																suggestedEyeTextureWidth,
 																suggestedEyeTextureHeight,
-																1, true );
+																1, 3 );
 }
 
 // Android Activity/Surface life cycle loop.
@@ -107,11 +106,14 @@ while ( !exit )
 	{
 		// Enter VR mode once the Android Activity is in the resumed state with a valid ANativeWindow.
 		xrModeParms modeParms = xrapiDefaultModeParms( &java );
-		modeParms.Flags |= VRAPI_MODE_FLAG_NATIVE_WINDOW;
+		modeParms.Flags |= XRAPI_MODE_FLAG_NATIVE_WINDOW;
 		modeParms.Display = eglDisplay;
 		modeParms.WindowSurface = nativeWindow;
 		modeParms.ShareContext = eglContext;
 		xrMobile * xr = xrapiEnterVrMode( &modeParms );
+
+		// Set the tracking transform to use, by default this is eye level.
+		xrapiSetTrackingTransform( xr, xrapiGetTrackingTransform( xr, XRAPI_TRACKING_TRANSFORM_SYSTEM_CENTER_EYE_LEVEL ) );
 
 		// Frame loop, possibly running on another thread.
 		for ( long long frameIndex = 1; resumed && nativeWindow != NULL; frameIndex++ )
@@ -125,27 +127,35 @@ while ( !exit )
 
 			// Advance the simulation based on the predicted display time.
 
-			// Render eye images and setup xrFrameParms using 'xrTracking2'.
-			xrFrameParms frameParms = xrapiDefaultFrameParms( &java, VRAPI_FRAME_INIT_DEFAULT, predictedDisplayTime, NULL );
-			frameParms.FrameIndex = frameIndex;
+			// Render eye images and setup the 'xrSubmitFrameDesc2' using 'xrTracking2' data.
 
-			for ( int eye = 0; eye < VRAPI_FRAME_LAYER_EYE_MAX; eye++ )
+			xrLayerProjection2 layer = xrapiDefaultLayerProjection2();
+			layer.HeadPose = tracking.HeadPose;
+			for ( int eye = 0; eye < XRAPI_FRAME_LAYER_EYE_MAX; eye++ )
 			{
 				const int colorTextureSwapChainIndex = frameIndex % xrapiGetTextureSwapChainLength( colorTextureSwapChain[eye] );
 				const unsigned int textureId = xrapiGetTextureSwapChainHandle( colorTextureSwapChain[eye], colorTextureSwapChainIndex );
 
 				// Render to 'textureId' using the 'ProjectionMatrix' from 'xrTracking2'.
-				// Insert 'fence' using eglCreateSyncKHR.
 
-				frameParms.Layers[0].Textures[eye].ColorTextureSwapChain = colorTextureSwapChain[eye];
-				frameParms.Layers[0].Textures[eye].TextureSwapChainIndex = colorTextureSwapChainIndex;
-				frameParms.Layers[0].Textures[eye].TexCoordsFromTanAngles = xrMatrix4f_TanAngleMatrixFromProjection( &tracking.Eye[eye].ProjectionMatrix );
-				frameParms.Layers[0].Textures[eye].HeadPose = tracking.HeadPose;
-				frameParms.Layers[0].Textures[eye].CompletionFence = fence;
+				layer.Textures[eye].ColorSwapChain = colorTextureSwapChain[eye];
+				layer.Textures[eye].SwapChainIndex = colorTextureSwapChainIndex;
+				layer.Textures[eye].TexCoordsFromTanAngles = xrMatrix4f_TanAngleMatrixFromProjection( &tracking.Eye[eye].ProjectionMatrix );
 			}
 
+			const xrLayerHeader2 * layers[] =
+			{
+				&layer.Header
+			};
+
+			xrSubmitFrameDescription2 frameDesc = { 0 };
+			frameDesc.FrameIndex = frameIndex;
+			frameDesc.DisplayTime = predictedDisplayTime;
+			frameDesc.LayerCount = 1;
+			frameDesc.Layers = layers;
+
 			// Hand over the eye images to the time warp.
-			xrapiSubmitFrame( xr, &frameParms );
+			xrapiSubmitFrame2( xr, &frameDesc );
 		}
 	}
 
@@ -155,7 +165,7 @@ while ( !exit )
 
 // Destroy the texture swap chains.
 // Make sure to delete the swapchains before the application's EGLContext is destroyed.
-for ( int eye = 0; eye < VRAPI_FRAME_LAYER_EYE_MAX; eye++ )
+for ( int eye = 0; eye < XRAPI_FRAME_LAYER_EYE_MAX; eye++ )
 {
 	xrapiDestroyTextureSwapChain( colorTextureSwapChain[eye] );
 }
@@ -163,6 +173,7 @@ for ( int eye = 0; eye < VRAPI_FRAME_LAYER_EYE_MAX; eye++ )
 // Shut down the API.
 xrapiShutdown();
 
+\endcode
 
 Integration
 ===========
@@ -212,7 +223,7 @@ an EGL_SURFACE_TYPE with EGL_PBUFFER_BIT.
 Sensor input only becomes available after entering VR mode. In part this is because the
 VrApi supports hybrid apps. The app starts out in non-stereo mode, and only switches to
 VR mode when the phone is docked into the headset. While not in VR mode, a non-stereo app
-shoud not be burdened with a SCHED_FIFO device manager thread for sensor input and possibly
+should not be burdened with a SCHED_FIFO device manager thread for sensor input and possibly
 expensive sensor/vision processing. In other words, there is no sensor input until the
 phone is docked and the app is in VR mode.
 
@@ -231,14 +242,10 @@ at any time from any thread.
 The VrApi allows for one frame of overlap which is essential on tiled mobile GPUs. Because
 there is one frame of overlap, the eye images have typically not completed rendering by the
 time they are submitted to xrapiSubmitFrame(). To allow the time warp to check whether the
-eye images have completed rendering, the application can explicitly pass in a sync object
-(CompletionFence) for each eye image through xrapiSubmitFrame(). Note that these sync
-objects must be EGLSyncKHR because the VrApi still supports OpenGL ES 2.0.
-
-If, however, the application does not explicitly pass in sync objects, then xrapiSubmitFrame()
-*must* be called from the thread with the OpenGL ES context that was used for rendering,
-which allows xrapiSubmitFrame() to add a sync object to the current context and check
-if rendering has completed.
+eye images have completed rendering, xrapiSubmitFrame() adds a sync object to the current
+context. Therefore, xrapiSubmitFrame() *must* be called from a thread with an OpenGL ES
+context whose completion ensures that frame rendering is complete. Generally this is the
+thread and context that was used for the rendering.
 
 Note that even if no OpenGL ES objects are explicitly passed through the VrApi, then
 xrapiEnterVrMode() and xrapiSubmitFrame() can still be called from different threads.
@@ -263,7 +270,7 @@ Frame Timing
 ============
 
 xrapiSubmitFrame() controls the synthesis rate through an application specified
-xrFrameParms::MinimumVsyncs. xrapiSubmitFrame() also controls at which point during
+frame parameter, SwapInterval. xrapiSubmitFrame() also controls at which point during
 a display refresh cycle the calling thread gets released. xrapiSubmitFrame() only returns
 when the previous eye images have been consumed by the asynchronous time warp thread,
 and at least the specified minimum number of V-syncs have passed since the last call
@@ -303,18 +310,19 @@ displayed at the same time without causing intra frame motion judder. While the 
 orientation can be updated for each eye, the position must remain the same for both eyes,
 or the position would seem to judder "backwards in time" if a frame is dropped.
 
-Ideally the eye images are only displayed for the MinimumVsyncs display refresh cycles
+Ideally the eye images are only displayed for the SwapInterval display refresh cycles
 that are centered about the eye image predicted display time. In other words, a set
-of eye images is first displayed at prediction time minus MinimumVsyncs / 2 display
+of eye images is first displayed at prediction time minus SwapInterval / 2 display
 refresh cycles. The eye images should never be shown before this time because that
 can cause intra frame motion judder. Ideally the eye images are also not shown after
-the prediction time plus MinimumVsyncs / 2 display refresh cycles, but this may
+the prediction time plus SwapInterval / 2 display refresh cycles, but this may
 happen if synthesis fails to produce new eye images in time.
 
-MinimumVsyncs = 1
+SwapInterval = 1
 ExtraLatencyMode = off
 Expected single-threaded simulation latency = 33 milliseconds
 The ATW brings this down to 8-16 milliseconds.
+\verbatim
 |-------|-------|-------|  - V-syncs
 |   *   |   *   |   *   |  - eye image display periods (* = predicted time in middle of display period)
      \     / \ / \ /
@@ -328,11 +336,13 @@ The ATW brings this down to 8-16 milliseconds.
     |   +---- Generate GPU commands and execute commands on GPU.
     |
     +---- xrapiSubmitFrame releases the renderer thread.
+\endverbatim
 
-MinimumVsyncs = 1
+SwapInterval = 1
 ExtraLatencyMode = on
 Expected single-threaded simulation latency = 49 milliseconds
 The ATW brings this down to 8-16 milliseconds.
+\verbatim
 |-------|-------|-------|-------|  - V-syncs
 |   *   |   *   |   *   |   *   |  - display periods (* = predicted time in middle of display period)
      \             / \ / \ /
@@ -347,11 +357,13 @@ The ATW brings this down to 8-16 milliseconds.
     |       +---- Generate GPU commands on CPU and execute commands on GPU.
     |
     +---- Frame submission releases the renderer thread.
+\endverbatim
 
-MinimumVsyncs = 2
+SwapInterval = 2
 ExtraLatencyMode = off
 Expected single-threaded simulation latency = 58 milliseconds
 The ATW brings this down to 8-16 milliseconds.
+\verbatim
 |-------|-------|-------|-------|-------|  - V-syncs
 *       |       *       |       *       |  - eye image display periods (* = predicted time in middle of display period)
      \             / \ / \ / \ / \ /
@@ -367,11 +379,13 @@ The ATW brings this down to 8-16 milliseconds.
     |       +---- Generate GPU commands and execute commands on GPU.
     |
     +---- xrapiSubmitFrame releases the renderer thread.
+\endverbatim
 
-MinimumVsyncs = 2
+SwapInterval = 2
 ExtraLatencyMode = on
 Expected single-threaded simulation latency = 91 milliseconds
 The ATW brings this down to 8-16 milliseconds.
+\verbatim
 |-------|-------|-------|-------|-------|-------|-------|  - V-syncs
 *       |       *       |       *       |       *       |  - eye image display periods (* = predicted time in middle of display period)
      \                             / \ / \ / \ / \ /
@@ -387,260 +401,502 @@ The ATW brings this down to 8-16 milliseconds.
     |               +---- Generate GPU commands and execute commands on GPU.
     |
     +---- xrapiSubmitFrame releases the renderer thread.
+\endverbatim
 
 */
+// clang-format on
 
-#if defined( __cplusplus )
+#if defined(__cplusplus)
 extern "C" {
 #endif
 
-// Returns the version + compile time stamp as a string.
-// Can be called any time from any thread.
-XRAPI_EXPORT const char * xrapiGetVersionString();
+/// Returns the version + compile time stamp as a string.
+/// Can be called any time from any thread.
+XRAPI_EXPORT const char* xrapiGetVersionString();
 
-// Returns global, absolute high-resolution time in seconds. This is the same value
-// as used in sensor messages and on Android also the same as Java's system.nanoTime(),
-// which is what the Choreographer V-sync timestamp is based on.
-// WARNING: do not use this time as a seed for simulations, animations or other logic.
-// An animation, for instance, should not be updated based on the "real time" the
-// animation code is executed. Instead, an animation should be updated based on the
-// time it will be displayed. Using the "real time" will introduce intra-frame motion
-// judder when the code is not executed at a consistent point in time every frame.
-// In other words, for simulations, animations and other logic use the time returned
-// by xrapiGetPredictedDisplayTime().
-// Can be called any time from any thread.
+/// Returns global, absolute high-resolution time in seconds. This is the same value
+/// as used in sensor messages and on Android also the same as Java's system.nanoTime(),
+/// which is what the V-sync timestamp is based on.
+/// \warning Do not use this time as a seed for simulations, animations or other logic.
+/// An animation, for instance, should not be updated based on the "real time" the
+/// animation code is executed. Instead, an animation should be updated based on the
+/// time it will be displayed. Using the "real time" will introduce intra-frame motion
+/// judder when the code is not executed at a consistent point in time every frame.
+/// In other words, for simulations, animations and other logic use the time returned
+/// by xrapiGetPredictedDisplayTime().
+/// Can be called any time from any thread.
 XRAPI_EXPORT double xrapiGetTimeInSeconds();
 
 //-----------------------------------------------------------------
 // Initialization/Shutdown
 //-----------------------------------------------------------------
 
-// Initializes the API for application use.
-// This is lightweight and does not create any threads.
-// This is typically called from onCreate() or shortly thereafter.
-// Can be called from any thread.
-// Returns a non-zero value from xrInitializeStatus on error.
-XRAPI_EXPORT xrInitializeStatus xrapiInitialize( const xrInitParms * initParms );
+/// Initializes the API for application use.
+/// This is lightweight and does not create any threads.
+/// This is typically called from onCreate() or shortly thereafter.
+/// Can be called from any thread.
+/// Returns a non-zero value from xrInitializeStatus on error.
+XRAPI_EXPORT xrInitializeStatus xrapiInitialize(const xrInitParms* initParms);
 
-// Shuts down the API on application exit.
-// This is typically called from onDestroy() or shortly thereafter.
-// Can be called from any thread.
+/// Shuts down the API on application exit.
+/// This is typically called from onDestroy() or shortly thereafter.
+/// Can be called from any thread.
 XRAPI_EXPORT void xrapiShutdown();
 
+//-----------------------------------------------------------------
+// VrApi Properties
+//-----------------------------------------------------------------
+
+/// Returns a VrApi property.
+/// These functions can be called any time from any thread once the VrApi is initialized.
+XRAPI_EXPORT void
+xrapiSetPropertyInt(const xrJava* java, const xrProperty propType, const int intVal);
+XRAPI_EXPORT void
+xrapiSetPropertyFloat(const xrJava* java, const xrProperty propType, const float floatVal);
+
+/// Returns false if the property cannot be read.
+XRAPI_EXPORT bool
+xrapiGetPropertyInt(const xrJava* java, const xrProperty propType, int* intVal);
 
 //-----------------------------------------------------------------
 // System Properties
 //-----------------------------------------------------------------
 
-// Returns a system property. These are constants for a particular device.
-// This function can be called any time from any thread once the VrApi is initialized.
-XRAPI_EXPORT int xrapiGetSystemPropertyInt( const xrJava * java, const xrSystemProperty propType );
-XRAPI_EXPORT float xrapiGetSystemPropertyFloat( const xrJava * java, const xrSystemProperty propType );
-// The return memory is guaranteed to be valid until the next call to xrapiGetSystemPropertyString.
-XRAPI_EXPORT const char * xrapiGetSystemPropertyString( const xrJava * java, const xrSystemProperty propType );
+/// Returns a system property. These are constants for a particular device.
+/// These functions can be called any time from any thread once the VrApi is initialized.
+XRAPI_EXPORT int xrapiGetSystemPropertyInt(
+    const xrJava* java,
+    const xrSystemProperty propType);
+XRAPI_EXPORT float xrapiGetSystemPropertyFloat(
+    const xrJava* java,
+    const xrSystemProperty propType);
+/// Returns the number of elements written to values array.
+XRAPI_EXPORT int xrapiGetSystemPropertyFloatArray(
+    const xrJava* java,
+    const xrSystemProperty propType,
+    float* values,
+    int numArrayValues);
+XRAPI_EXPORT int xrapiGetSystemPropertyInt64Array(
+    const xrJava* java,
+    const xrSystemProperty propType,
+    int64_t* values,
+    int numArrayValues);
+
+/// The return memory is guaranteed to be valid until the next call to
+/// xrapiGetSystemPropertyString.
+XRAPI_EXPORT const char* xrapiGetSystemPropertyString(
+    const xrJava* java,
+    const xrSystemProperty propType);
 
 //-----------------------------------------------------------------
 // System Status
 //-----------------------------------------------------------------
 
-// Returns a system status. These are variables that may change at run-time.
-// This function can be called any time from any thread once the VrApi is initialized.
-XRAPI_EXPORT int xrapiGetSystemStatusInt( const xrJava * java, const xrSystemStatus statusType );
-XRAPI_EXPORT float xrapiGetSystemStatusFloat( const xrJava * java, const xrSystemStatus statusType );
+/// Returns a system status. These are variables that may change at run-time.
+/// This function can be called any time from any thread once the VrApi is initialized.
+XRAPI_EXPORT int xrapiGetSystemStatusInt(
+    const xrJava* java,
+    const xrSystemStatus statusType);
+XRAPI_EXPORT float xrapiGetSystemStatusFloat(
+    const xrJava* java,
+    const xrSystemStatus statusType);
 
 //-----------------------------------------------------------------
 // Enter/Leave VR mode
 //-----------------------------------------------------------------
 
-// Starts up the time warp, V-sync tracking, sensor reading, clock locking,
-// thread scheduling, and sets video options. The parms are copied, and are
-// not referenced after the function returns.
-//
-// This should be called after xrapiInitialize(), when the app is both
-// resumed and has a valid window surface (ANativeWindow).
-//
-// On Android, an application cannot just allocate a new window surface
-// and render to it. Android allocates and manages the window surface and
-// (after the fact) notifies the application of the state of affairs through
-// life cycle events (surfaceCreated / surfaceChanged / surfaceDestroyed).
-// The application (or 3rd party engine) typically handles these events.
-// Since the VrApi cannot just allocate a new window surface, and the VrApi
-// does not handle the life cycle events, the VrApi somehow has to take over
-// ownership of the Android surface from the application. To allow this, the
-// application can explicitly pass the EGLDisplay, EGLContext and EGLSurface
-// or ANativeWindow to xrapiEnterVrMode(). The EGLDisplay and EGLContext are
-// used to create a shared context used by the background time warp thread.
-//
-// If, however, the application does not explicitly pass in these objects, then
-// xrapiEnterVrMode() *must* be called from a thread with an OpenGL ES context
-// current on the Android window surface. The context of the calling thread is
-// then used to match the version and config for the context used by the background
-// time warp thread. The time warp will also hijack the Android window surface
-// from the context that is current on the calling thread. On return, the context
-// from the calling thread will be current on an invisible pbuffer, because the
-// time warp takes ownership of the Android window surface. Note that this requires
-// the config used by the calling thread to have an EGL_SURFACE_TYPE with EGL_PBUFFER_BIT.
-//
-// New applications should always explicitly pass in the EGLDisplay, EGLContext
-// and ANativeWindow. The other paths are still available to support old applications
-// but they will be deprecated.
-//
-// This function will return NULL when entering VR mode failed because the ANativeWindow
-// was not valid. If the ANativeWindow's buffer queue is abandoned
-// ("BufferQueueProducer: BufferQueue has been abandoned"), then the app can wait for a
-// new ANativeWindow (through SurfaceCreated). If another API is already connected to
-// the ANativeWindow ("BufferQueueProducer: already connected"), then the app has to first
-// disconnect whatever is connected to the ANativeWindow (typically an EGLSurface).
-XRAPI_EXPORT xrMobile * xrapiEnterVrMode( const xrModeParms * parms );
+/// Starts up the time warp, V-sync tracking, sensor reading, clock locking,
+/// thread scheduling, and sets video options. The parms are copied, and are
+/// not referenced after the function returns.
+///
+/// This should be called after xrapiInitialize(), when the app is both
+/// resumed and has a valid window surface (ANativeWindow).
+///
+/// On Android, an application cannot just allocate a new window surface
+/// and render to it. Android allocates and manages the window surface and
+/// (after the fact) notifies the application of the state of affairs through
+/// life cycle events (surfaceCreated / surfaceChanged / surfaceDestroyed).
+/// The application (or 3rd party engine) typically handles these events.
+/// Since the VrApi cannot just allocate a new window surface, and the VrApi
+/// does not handle the life cycle events, the VrApi somehow has to take over
+/// ownership of the Android surface from the application. To allow this, the
+/// application can explicitly pass the EGLDisplay, EGLContext and EGLSurface
+/// or ANativeWindow to xrapiEnterVrMode(). The EGLDisplay and EGLContext are
+/// used to create a shared context used by the background time warp thread.
+///
+/// If, however, the application does not explicitly pass in these objects, then
+/// xrapiEnterVrMode() *must* be called from a thread with an OpenGL ES context
+/// current on the Android window surface. The context of the calling thread is
+/// then used to match the version and config for the context used by the background
+/// time warp thread. The time warp will also hijack the Android window surface
+/// from the context that is current on the calling thread. On return, the context
+/// from the calling thread will be current on an invisible pbuffer, because the
+/// time warp takes ownership of the Android window surface. Note that this requires
+/// the config used by the calling thread to have an EGL_SURFACE_TYPE with EGL_PBUFFER_BIT.
+///
+/// New applications must always explicitly pass in the EGLDisplay, EGLContext
+/// and ANativeWindow, otherwise xrapiEnterVrMode will fail.
+///
+/// This function will return NULL when entering VR mode failed because the ANativeWindow
+/// was not valid. If the ANativeWindow's buffer queue is abandoned
+/// ("BufferQueueProducer: BufferQueue has been abandoned"), then the app can wait for a
+/// new ANativeWindow (through SurfaceCreated). If another API is already connected to
+/// the ANativeWindow ("BufferQueueProducer: already connected"), then the app has to first
+/// disconnect whatever is connected to the ANativeWindow (typically an EGLSurface).
+XRAPI_EXPORT xrMobile* xrapiEnterVrMode(const xrModeParms* parms);
 
-// Shut everything down for window destruction or when the activity is paused.
-// The xrMobile object is freed by this function.
-//
-// Must be called from the same thread that called xrapiEnterVrMode(). If the
-// application did not explicitly pass in the Android window surface, then this
-// thread *must* have the same OpenGL ES context that was current on the Android
-// window surface before calling xrapiEnterVrMode(). By calling this function,
-// the time warp gives up ownership of the Android window surface, and on return,
-// the context from the calling thread will be current again on the Android window
-// surface.
-XRAPI_EXPORT void xrapiLeaveVrMode( xrMobile * xr );
+/// Shut everything down for window destruction or when the activity is paused.
+/// The xrMobile object is freed by this function.
+///
+/// Must be called from the same thread that called xrapiEnterVrMode(). If the
+/// application did not explicitly pass in the Android window surface, then this
+/// thread *must* have the same OpenGL ES context that was current on the Android
+/// window surface before calling xrapiEnterVrMode(). By calling this function,
+/// the time warp gives up ownership of the Android window surface, and on return,
+/// the context from the calling thread will be current again on the Android window
+/// surface.
+XRAPI_EXPORT void xrapiLeaveVrMode(xrMobile* xr);
 
 //-----------------------------------------------------------------
 // Tracking
 //-----------------------------------------------------------------
 
-// Returns a predicted absolute system time in seconds at which the next set
-// of eye images will be displayed.
-//
-// The predicted time is the middle of the time period during which the new
-// eye images will be displayed. The number of frames predicted ahead depends
-// on the pipeline depth of the engine and the minumum number of V-syncs in
-// between eye image rendering. The better the prediction, the less black will
-// be pulled in at the edges by the time warp.
-//
-// The frameIndex is an application controlled number that uniquely identifies
-// the new set of eye images for which synthesis is about to start. This same
-// frameIndex must be passed to xrapiSubmitFrame() when the new eye images are
-// submitted to the time warp. The frameIndex is expected to be incremented
-// once every frame before calling this function.
-//
-// Can be called from any thread while in VR mode.
-XRAPI_EXPORT double xrapiGetPredictedDisplayTime( xrMobile * xr, long long frameIndex );
+/// Returns a predicted absolute system time in seconds at which the next set
+/// of eye images will be displayed.
+///
+/// The predicted time is the middle of the time period during which the new
+/// eye images will be displayed. The number of frames predicted ahead depends
+/// on the pipeline depth of the engine and the minumum number of V-syncs in
+/// between eye image rendering. The better the prediction, the less black will
+/// be pulled in at the edges by the time warp.
+///
+/// The frameIndex is an application controlled number that uniquely identifies
+/// the new set of eye images for which synthesis is about to start. This same
+/// frameIndex must be passed to xrapiSubmitFrame() when the new eye images are
+/// submitted to the time warp. The frameIndex is expected to be incremented
+/// once every frame before calling this function.
+///
+/// Can be called from any thread while in VR mode.
+XRAPI_EXPORT double xrapiGetPredictedDisplayTime(xrMobile* xr, long long frameIndex);
 
-// Returns the predicted sensor state based on the specified absolute system time
-// in seconds. Pass absTime value of 0.0 to request the most recent sensor reading.
-//
-// Can be called from any thread while in VR mode.
-XRAPI_EXPORT xrTracking2 xrapiGetPredictedTracking2( xrMobile * xr, double absTimeInSeconds );
+/// Returns the predicted sensor state based on the specified absolute system time
+/// in seconds. Pass absTime value of 0.0 to request the most recent sensor reading.
+///
+/// Can be called from any thread while in VR mode.
+XRAPI_EXPORT xrTracking2 xrapiGetPredictedTracking2(xrMobile* xr, double absTimeInSeconds);
 
-XRAPI_EXPORT xrTracking xrapiGetPredictedTracking( xrMobile * xr, double absTimeInSeconds );
+XRAPI_EXPORT xrTracking xrapiGetPredictedTracking(xrMobile* xr, double absTimeInSeconds);
 
-// Recenters the orientation on the yaw axis and will recenter the position
-// when position tracking is available.
+/// Recenters the orientation on the yaw axis and will recenter the position
+/// when position tracking is available.
+///
+/// \note This immediately affects xrapiGetPredictedTracking() which may
+/// be called asynchronously from the time warp. It is therefore best to
+/// make sure the screen is black before recentering to avoid previous eye
+/// images from being abrubtly warped across the screen.
+///
+/// Can be called from any thread while in VR mode.
+
+// xrapiRecenterPose() is being deprecated because it is supported at the user
+// level via system interaction, and at the app level, the app is free to use
+// any means it likes to control the mapping of virtual space to physical space.
+XRAPI_DEPRECATED(XRAPI_EXPORT void xrapiRecenterPose(xrMobile* xr));
+
+//-----------------------------------------------------------------
+// Tracking Transform
 //
-// Note that this immediately affects xrapiGetPredictedTracking() which may
-// be called asynchronously from the time warp. It is therefore best to
-// make sure the screen is black before recentering to avoid previous eye
-// images from being abrubtly warped across the screen.
+//-----------------------------------------------------------------
+
+/// The coordinate system used by the tracking system is defined in meters
+/// with its positive y axis pointing up, but its origin and yaw are unspecified.
+///
+/// Applications generally prefer to operate in a well-defined coordinate system
+/// relative to some base pose. The tracking transform allows the application to
+/// specify the space that tracking poses are reported in.
+///
+/// The tracking transform is specified as the xrPosef of the base pose in tracking
+/// system coordinates.
+///
+/// Head poses the application supplies in xrapiSubmitFrame() are transformed
+/// by the tracking transform.
+/// Pose predictions generated by the system are transformed by the inverse of the
+/// tracking transform before being reported to the application.
+///
+/// \note This immediately affects xrapiSubmitFrame() and
+/// xrapiGetPredictedTracking(). It is important for the app to make sure that
+/// the tracking transform does not change between the fetching of a pose prediction
+/// and the submission of poses in xrapiSubmitFrame().
+///
+/// The default Tracking Transform is XRAPI_TRACKING_TRANSFORM_SYSTEM_CENTER_EYE_LEVEL.
+
+/// Returns a pose suitable to use as a tracking transform.
+/// Applications that want to use an eye-level based coordinate system can fetch
+/// the XRAPI_TRACKING_TRANSFORM_SYSTEM_CENTER_EYE_LEVEL transform.
+/// Applications that want to use a floor-level based coordinate system can fetch
+/// the XRAPI_TRACKING_TRANSFORM_SYSTEM_CENTER_FLOOR_LEVEL transform.
+/// To determine the current tracking transform, applications can fetch the
+/// XRAPI_TRACKING_TRANSFORM_CURRENT transform.
+
+/// The TrackingTransform API has been deprecated because it was superceded by the
+/// TrackingSpace API. The key difference in the TrackingSpace API is that LOCAL
+/// and LOCAL_FLOOR spaces are mutable, so user/system recentering is transparently
+/// applied without app intervention.
+XRAPI_DEPRECATED(XRAPI_EXPORT xrPosef xrapiGetTrackingTransform(
+    xrMobile* xr,
+    xrTrackingTransform whichTransform));
+
+/// Sets the transform used to convert between tracking coordinates and a canonical
+/// application-defined space.
+/// Only the yaw component of the orientation is used.
+XRAPI_DEPRECATED(
+    XRAPI_EXPORT void xrapiSetTrackingTransform(xrMobile* xr, xrPosef pose));
+
+/// Returns the current tracking space
+XRAPI_EXPORT xrTrackingSpace xrapiGetTrackingSpace(xrMobile* xr);
+
+/// Set the tracking space. There are currently two options:
+///   * XRAPI_TRACKING_SPACE_LOCAL (default)
+///         The local tracking space's origin is at the nominal head position
+///         with +y up, and -z forward. This space is volatile and will change
+///         when system recentering occurs.
+///   * XRAPI_TRACKING_SPACE_LOCAL_FLOOR
+///         The local floor tracking space is the same as the local tracking
+///         space, except its origin is translated down to the floor. The local
+///         floor space differs from the local space only in its y translation.
+///         This space is volatile and will change when system recentering occurs.
+XRAPI_EXPORT xrResult xrapiSetTrackingSpace(xrMobile* xr, xrTrackingSpace whichSpace);
+
+/// Returns pose of the requested space relative to the current space.
+/// The returned value is not affected by the current tracking transform.
+XRAPI_EXPORT xrPosef xrapiLocateTrackingSpace(xrMobile* xr, xrTrackingSpace target);
+
+//-----------------------------------------------------------------
+// Guardian System
 //
-// Can be called from any thread while in VR mode.
-XRAPI_EXPORT void xrapiRecenterPose( xrMobile * xr );
+//-----------------------------------------------------------------
+
+/// Get the geometry of the Guardian System as a list of points that define the outer boundary
+/// space. You can choose to get just the number of points by passing in a null value for points or
+/// by passing in a pointsCountInput size of 0.  Otherwise pointsCountInput will be used to fetch
+/// as many points as possible from the Guardian points data.  If the input size exceeds the
+/// number of points that are currently stored off we only copy up to the number of points that we
+/// have and pointsCountOutput will return the number of copied points
+XRAPI_EXPORT xrResult xrapiGetBoundaryGeometry(
+    xrMobile* xr,
+    const uint32_t pointsCountInput,
+    uint32_t* pointsCountOutput,
+    xrVector3f* points);
+
+/// Gets the dimension of the Oriented Bounding box for the Guardian System.  This is the largest
+/// fit rectangle within the Guardian System boundary geometry. The pose value contains the forward
+/// facing direction as well as the translation for the oriented box.  The scale return value
+/// returns a scalar value for the width, height, and depth of the box.  These values are half the
+/// actual size as they are scalars and in meters."
+XRAPI_EXPORT xrResult
+xrapiGetBoundaryOrientedBoundingBox(xrMobile* xr, xrPosef* pose, xrVector3f* scale);
+
+/// Tests collision/proximity of a 3D point against the Guardian System Boundary and returns whether
+/// or not a given point is inside or outside of the boundary.  If a more detailed set of boundary
+/// trigger information is requested a xrBoundaryTriggerResult may be passed in.  However null may
+/// also be passed in to just return whether a point is inside the boundary or not.
+XRAPI_EXPORT xrResult xrapiTestPointIsInBoundary(
+    xrMobile* xr,
+    const xrVector3f point,
+    bool* pointInsideBoundary,
+    xrBoundaryTriggerResult* result);
+
+/// Tests collision/proximity of position tracked devices (e.g. HMD and/or Controllers) against the
+/// Guardian System boundary. This function returns an xrGuardianTriggerResult which contains
+/// information such as distance and closest point based on collision/proximity test
+XRAPI_EXPORT xrResult xrapiGetBoundaryTriggerState(
+    xrMobile* xr,
+    const xrTrackedDeviceTypeId deviceId,
+    xrBoundaryTriggerResult* result);
+
+/// Used to force Guardian System mesh visibility to true.  Forcing to false will set the Guardian
+/// System back to normal operation.
+XRAPI_EXPORT xrResult xrapiRequestBoundaryVisible(xrMobile* xr, const bool visible);
+
+/// Used to access whether or not the Guardian System is visible or not
+XRAPI_EXPORT xrResult xrapiGetBoundaryVisible(xrMobile* xr, bool* visible);
+
 
 //-----------------------------------------------------------------
 // Texture Swap Chains
 //
 //-----------------------------------------------------------------
 
-// Create a texture swap chain that can be passed to xrapiSubmitFrame.
-// Must be called from a thread with a valid OpenGL ES context current.
-//
-// Specifying 0 levels allows the individual texture ids to be set with
-// xrapiSetTextureSwapChainHandle().
-//
-// Specifying VRAPI_TEXTURE_SWAPCHAIN_FULL_MIP_CHAIN levels will calculate
-// the levels based on width and height.
-//
-// Buffers used to be a bool that selected either a single texture index
-// or a triple buffered index, but the new entry point allows up to 16 buffers
-// to be allocated, which is useful for maintaining a deep video buffer queue
-// to get better frame timing.
-XRAPI_EXPORT xrTextureSwapChain * xrapiCreateTextureSwapChain2( xrTextureType type, xrTextureFormat format,
-                                                                      int width, int height, int levels, int bufferCount );
+/// Texture Swap Chain lifetime is explicitly controlled by the application via calls
+/// to xrapiCreateTextureSwapChain* or xrapiCreateAndroidSurfaceSwapChain and
+/// xrapiDestroyTextureSwapChain. Swap Chains are associated with the VrApi instance,
+/// not the VrApi xrMobile. Therefore, calls to xrapiEnterVrMode and xrapiLeaveVrMode
+/// will not destroy or cause the Swap Chain to become invalid.
 
-XRAPI_EXPORT xrTextureSwapChain * xrapiCreateTextureSwapChain( xrTextureType type, xrTextureFormat format,
-                                                                     int width, int height, int levels, bool buffered );
+/// Create a texture swap chain that can be passed to xrapiSubmitFrame.
+/// Must be called from a thread with a valid OpenGL ES context current.
+///
+/// 'bufferCount' used to be a bool that selected either a single texture index
+/// or a triple buffered index, but the new entry point xrapiCreateTextureSwapChain2,
+/// allows up to 16 buffers to be allocated, which is useful for maintaining a
+/// deep video buffer queue to get better frame timing.
+///
+/// 'format' used to be an xrTextureFormat but has been expanded to accept
+/// platform specific format types. For GLES, this is the internal format.
+/// If an unsupported format is provided, swapchain creation will fail.
+///
+/// SwapChain creation failures result in a return value of 'nullptr'.
+XRAPI_EXPORT xrTextureSwapChain* xrapiCreateTextureSwapChain3(
+    xrTextureType type,
+    int64_t format,
+    int width,
+    int height,
+    int levels,
+    int bufferCount);
 
-// Destroy the given texture swap chain.
-// Must be called from a thread with the same OpenGL ES context current when xrapiCreateTextureSwapChain was called.
-XRAPI_EXPORT void xrapiDestroyTextureSwapChain( xrTextureSwapChain * chain );
+XRAPI_EXPORT xrTextureSwapChain* xrapiCreateTextureSwapChain2(
+    xrTextureType type,
+    xrTextureFormat format,
+    int width,
+    int height,
+    int levels,
+    int bufferCount);
 
-// Returns the number of textures in the swap chain.
-XRAPI_EXPORT int xrapiGetTextureSwapChainLength( xrTextureSwapChain * chain );
+XRAPI_EXPORT xrTextureSwapChain* xrapiCreateTextureSwapChain(
+    xrTextureType type,
+    xrTextureFormat format,
+    int width,
+    int height,
+    int levels,
+    bool buffered);
 
-// Get the OpenGL name of the texture at the given index.
-XRAPI_EXPORT unsigned int xrapiGetTextureSwapChainHandle( xrTextureSwapChain * chain, int index );
+/// Create an Android SurfaceTexture based texture swap chain suitable for use with
+/// xrapiSubmitFrame. Updating of the SurfaceTexture is handled through normal Android platform
+/// specific mechanisms from within the Compositor. A reference to the Android Surface object
+/// associated with the SurfaceTexture may be obtained by calling
+/// xrapiGetTextureSwapChainAndroidSurface.
+///
+/// An optional width and height (ie width and height do not equal zero) may be provided in order to
+/// set the default size of the image buffers. Note that the image producer may override the buffer
+/// size, in which case the default values provided here will not be used (ie both video
+/// decompression or camera preview override the size automatically).
+///
+/// If isProtected is true, the surface swapchain will be created as a protected surface, ie for
+/// supporting secure video playback.
+///
+/// NOTE: These paths are not currently supported under Vulkan.
+XRAPI_EXPORT xrTextureSwapChain* xrapiCreateAndroidSurfaceSwapChain(int width, int height);
+XRAPI_EXPORT xrTextureSwapChain*
+xrapiCreateAndroidSurfaceSwapChain2(int width, int height, bool isProtected);
 
-// Set the OpenGL name of the texture at the given index. NOTE: This is not portable to PC.
-// This will silently fail with:
-// W/TimeWarp: SetTextureSwapChainHandle: chain->Allocated
-// Unless the SwapChain was created with 0 levels.
-XRAPI_EXPORT void xrapiSetTextureSwapChainHandle( xrTextureSwapChain * chain, int index, unsigned int handle );
+
+/// Destroy the given texture swap chain.
+/// Must be called from a thread with the same OpenGL ES context current when
+/// xrapiCreateTextureSwapChain was called.
+XRAPI_EXPORT void xrapiDestroyTextureSwapChain(xrTextureSwapChain* chain);
+
+/// Returns the number of textures in the swap chain.
+XRAPI_EXPORT int xrapiGetTextureSwapChainLength(xrTextureSwapChain* chain);
+
+/// Get the OpenGL name of the texture at the given index.
+XRAPI_EXPORT unsigned int xrapiGetTextureSwapChainHandle(
+    xrTextureSwapChain* chain,
+    int index);
+
+
+/// Get the Android Surface object associated with the swap chain.
+XRAPI_EXPORT jobject xrapiGetTextureSwapChainAndroidSurface(xrTextureSwapChain* chain);
+
 
 //-----------------------------------------------------------------
 // Frame Submission
 //-----------------------------------------------------------------
 
-// Accepts new eye images plus poses that will be used for future warps.
-// The parms are copied, and are not referenced after the function returns.
-//
-// This will block until the textures from the previous xrapiSubmitFrame() have been
-// consumed by the background thread, to allow one frame of overlap for maximum
-// GPU utilization, while preventing multiple frames from piling up variable latency.
-//
-// This will block until at least MinimumVsyncs have passed since the last
-// call to xrapiSubmitFrame() to prevent applications with simple scenes from
-// generating completely wasted frames.
-//
-// IMPORTANT: any dynamic textures that are passed to xrapiSubmitFrame() must be
-// triple buffered to avoid flickering and performance problems.
-//
-// The VrApi allows for one frame of overlap which is essential on tiled mobile GPUs.
-// Because there is one frame of overlap, the eye images have typically not completed
-// rendering by the time they are submitted to xrapiSubmitFrame(). To allow the time
-// warp to check whether the eye images have completed rendering, the application can
-// explicitly pass in a sync object (CompletionFence) for each eye image through
-// xrapiSubmitFrame(). Note that these sync objects must be EGLSyncKHR because the
-// VrApi still supports OpenGL ES 2.0.
-//
-// If, however, the application does not explicitly pass in sync objects, then
-// xrapiSubmitFrame() *must* be called from the thread with the OpenGL ES context that
-// was used for rendering, which allows xrapiSubmitFrame() to add a sync object to
-// the current context and check if rendering has completed.
-XRAPI_EXPORT void xrapiSubmitFrame( xrMobile * xr, const xrFrameParms * parms );
 
-//Sensor device event callback
-//Callback data layout:
-//float *pdata=(float *)data
-//pdata[0], pdata[1]. pdata[2] 加速度三个方向的数据
-//pdata[3], pdata[4]. pdata[5] 陀螺仪三个方向的数据。
-//pdata[6]  时间戳，整数以秒为单位
-//坐标系为xy平面在设备前面板上的右手坐标系
-//void *data指向的Sensor数据在回调返回后失效。如果需要在回调返回后使用。需要在回调函数中存储SENSOR数据。
-//为了保证sensor数据的实时性，回调函数中的事务需要尽快完成，如果需要做大量处理，建议在回调函数外完成。
-XRAPI_EXPORT void xrapiRegisterSensorCb(void (*callback)(void *data));
+/// Accepts new eye images plus poses that will be used for future warps.
+/// The parms are copied, and are not referenced after the function returns.
+///
+/// This will block until the textures from the previous xrapiSubmitFrame() have been
+/// consumed by the background thread, to allow one frame of overlap for maximum
+/// GPU utilization, while preventing multiple frames from piling up variable latency.
+///
+/// This will block until at least SwapInterval vsyncs have passed since the last
+/// call to xrapiSubmitFrame() to prevent applications with simple scenes from
+/// generating completely wasted frames.
+///
+/// IMPORTANT: any dynamic textures that are passed to xrapiSubmitFrame() must be
+/// triple buffered to avoid flickering and performance problems.
+///
+/// The VrApi allows for one frame of overlap which is essential on tiled mobile GPUs.
+/// Because there is one frame of overlap, the eye images have typically not completed
+/// rendering by the time they are submitted to xrapiSubmitFrame(). To allow the time
+/// warp to check whether the eye images have completed rendering, xrapiSubmitFrame()
+/// adds a sync object to the current context. Therefore, xrapiSubmitFrame() *must*
+/// be called from a thread with an OpenGL ES context whose completion ensures that
+/// frame rendering is complete. Generally this is the thread and context that was used
+/// for the rendering.
+XRAPI_EXPORT void xrapiSubmitFrame(xrMobile* xr, const xrFrameParms* parms);
 
-XRAPI_EXPORT void xrapiSensorInit();
+/// xrapiSubmitFrame2 takes a frameDescription describing per-frame information such as:
+/// a flexible list of layers which should be drawn this frame and a frame index.
+XRAPI_EXPORT xrResult
+xrapiSubmitFrame2(xrMobile* xr, const xrSubmitFrameDescription2* frameDescription);
 
-XRAPI_EXPORT void xrapiSensorShutdown();
+//-----------------------------------------------------------------
+// Performance
+//-----------------------------------------------------------------
 
-XRAPI_EXPORT void xrapiUnRegisterSensorCb();
+/// Set the CPU and GPU performance levels.
+///
+/// Increasing the levels increases performance at the cost of higher power consumption
+/// which likely leads to a greater chance of overheating.
+///
+/// Levels will be clamped to the expected range. Default clock levels are cpuLevel = 2, gpuLevel
+/// = 2.
+XRAPI_EXPORT xrResult
+xrapiSetClockLevels(xrMobile* xr, const int32_t cpuLevel, const int32_t gpuLevel);
 
-XRAPI_EXPORT xrTracking xrapiGetPredictedTrackingForServer( xrMobile * xr, double absTimeInSeconds );
+/// Specify which app threads should be given higher scheduling priority.
+XRAPI_EXPORT xrResult
+xrapiSetPerfThread(xrMobile* xr, const xrPerfThreadType type, const uint32_t threadId);
 
-XRAPI_EXPORT void xrapiRecenterPoseForServer( xrMobile * xr );
+/// If XRAPI_EXTRA_LATENCY_MODE_ON specified, adds an extra frame of latency for full GPU
+/// utilization. Default is XRAPI_EXTRA_LATENCY_MODE_OFF.
+///
+/// The latency mode specified will be applied on the next call to xrapiSubmitFrame(2).
+XRAPI_EXPORT xrResult
+xrapiSetExtraLatencyMode(xrMobile* xr, const xrExtraLatencyMode mode);
 
-XRAPI_EXPORT int xrapiGetDeviceManagerThreadTid();
-#if defined( __cplusplus )
-} //extern "C"
+//-----------------------------------------------------------------
+// Display Refresh Rate
+//-----------------------------------------------------------------
+
+/// Set the Display Refresh Rate.
+/// Returns xrSuccess or an xrError code.
+/// Returns 'xrError_InvalidParameter' if requested refresh rate is not supported by the device.
+/// Returns 'xrError_InvalidOperation' if the display refresh rate request was not allowed (such as
+/// when the device is in low power mode).
+XRAPI_EXPORT xrResult xrapiSetDisplayRefreshRate(xrMobile* xr, const float refreshRate);
+
+//-----------------------------------------------------------------
+// Events
+//-----------------------------------------------------------------
+
+/// Returns VrApi state information to the application.
+/// The application should read from the VrApi event queue with regularity.
+///
+/// The caller must pass a pointer to memory that is at least the size of the largest event
+/// structure, XRAPI_LARGEST_EVENT_TYPE. On return, the structure is filled in with the current
+/// event's data. All event structures start with the xrEventHeader, which contains the
+/// type of the event. Based on this type, the caller can cast the passed xrEventHeader
+/// pointer to the appropriate event type.
+///
+/// Returns xrSuccess if no error occured.
+/// If no events are pending the event header EventType will be XRAPI_EVENT_NONE.
+XRAPI_EXPORT xrResult xrapiPollEvent(xrEventHeader* event);
+
+
+#if defined(__cplusplus)
+} // extern "C"
 #endif
-#endif //XRSDK_XRAPI_H
+
+#endif // XR_XrApih
