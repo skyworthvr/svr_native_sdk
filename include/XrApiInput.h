@@ -82,7 +82,12 @@ typedef enum xrControllerType_ {
 
 typedef uint32_t xrDeviceID;
 
-typedef enum xrDeviceIdType_ { xrDeviceIdType_Invalid = 0x7fffffff } xrDeviceIdType;
+typedef enum xrDeviceIdType_ {
+    xrDeviceIdType_SSNWT_RIGHT = 0x00000000,
+    xrDeviceIdType_SSNWT_LEFT = 0x00000001,
+    xrDeviceIdType_SSNWT_HEAD = 0x00000002,
+    xrDeviceIdType_Invalid = 0x7fffffff
+} xrDeviceIdType;
 
 /// This header starts all xrInputCapabilities structures. It should only hold fields
 /// that are common to all input controllers.

@@ -5,6 +5,7 @@
 #include "XrApiConfig.h"
 #include "XrApiVersion.h"
 #include "XrApiTypes.h"
+#include "XrApiInput.h"
 
 // clang-format off
 /** \mainpage
@@ -806,7 +807,13 @@ XRAPI_EXPORT unsigned int xrapiGetTextureSwapChainHandle(
 /// Get the Android Surface object associated with the swap chain.
 XRAPI_EXPORT jobject xrapiGetTextureSwapChainAndroidSurface(xrTextureSwapChain* chain);
 
-
+XRAPI_EXPORT xrResult xrapiEnumerateInputDevices(xrMobile * xr, const uint32_t index,
+        xrInputCapabilityHeader * capsHeader);
+XRAPI_EXPORT xrResult xrapiGetInputDeviceCapabilities(xrMobile * xr, xrInputCapabilityHeader * capsHeader);
+XRAPI_EXPORT xrResult xrapiGetCurrentInputState(xrMobile * ovr, const xrDeviceID deviceID,
+        xrInputStateHeader * inputState);
+XRAPI_EXPORT xrResult xrapiGetInputTrackingState(xrMobile * ovr, const xrDeviceID deviceID,
+        const double absTimeInSeconds, xrTracking * tracking );
 //-----------------------------------------------------------------
 // Frame Submission
 //-----------------------------------------------------------------
