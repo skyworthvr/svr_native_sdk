@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.ssnwt.cubeworld">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="com.huawei.android.permission.VR" />
+    <uses-permission
+        android:name="com.huawei.vrservice.permission.VR" />
+    <uses-feature
+        android:name="android.software.activities_on_secondary_displays"/>
+    <uses-feature
+        android:name="android.software.vr.mode"
+        android:required="true" />
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:hasCode="true">
+        <meta-data
+            android:name="com.huawei.android.vr.application.mode"
+            android:value="vr_only" />
+        <activity
+            android:name="com.ssnwt.cubeworld.MainActivity"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:excludeFromRecents="false"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden">
+            <!-- Tell NativeActivity the name of the .so -->
+            <meta-data android:name="android.app.lib_name" android:value="vrcubeworld" />
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
